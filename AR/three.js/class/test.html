@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<!-- three.js library -->
+<script src='../examples/vendor/three.js/examples/js/libs/stats.min.js'></script>
+<script src='../examples/vendor/three.js/build/three.js'></script>
+<!-- ar.js -->
+<script src="../build/ar.js"></script>
+<script>THREEx.ArToolkitContext.baseURL = '../'</script>
+
+<body style='margin : 0px; overflow: hidden; font-family: Monospace;'>
+    <div style='position: absolute; top: 10px; width:100%; text-align: center; z-index: 1;'>
+
+    </div>
+    <script>
+        //--------------------------------------------------------------------------------
+        //		初始化
+        //--------------------------------------------------------------------------------
+
+        if (navigator.mediaDevices === undefined ||
+        navigator.mediaDevices.enumerateDevices === undefined||
+        navigator.mediaDevices.getUserMedia === undefined) {
+            if(navigator.mediaDevices === undefined){
+                var fctName = "navigator.mediaDevices"
+            }
+            else if(navigator.mediaDevices.enumerateDevices === undefined)
+            {
+                var fctName = "navigator.mediaDevices.enumerateDevices"
+            }
+            else if(navigator.mediaDevices.getUserMedia === undefined)
+            {
+                var fctName = "navigator.mediaDevices.getUserMedia"
+            }
+            else
+            {
+                console.assert(false)
+            }
+            alert("!!!!!!!!" +  fctName)
+        }
+
+
+
+
+
+
+        
+        // 通过three.js初始化webgl渲染器
+        var renderer = new THREE.WebGLRenderer({
+            antialias: true,
+            alpha: true
+        });
+        renderer.setClearColor(new THREE.Color('lightgrey'), 0)
+        renderer.setSize(640, 480);
+        renderer.domElement.style.position = 'absolute'
+        renderer.domElement.style.top = '0px'
+        renderer.domElement.style.left = '0px'
+        document.body.appendChild(renderer.domElement);
+
+        // 主渲染循环中使用到的渲染函数
+        var onRenderFcts = [];
+
+        // 使用three.js初始化场景
+        var scene = new THREE.Scene();
+
+        //--------------------------------------------------------------------------------
+        //		初始化相机
+        //--------------------------------------------------------------------------------
+
+        // 使用three.js创建一个相机
+        var camera = new THREE.Camera();
+        scene.add(camera);
+
+        //--------------------------------------------------------------------------------
+        //      ar.js初始化
+        //--------------------------------------------------------------------------------
+
+        var arToolkitSource = new THREEx.ArToolkitSource({
+            // webcam源
+            sourceType: 'webcam',
+        })
+
+        arToolkitSource.init(function onReady() {
+            setTimeout(() => {
+                onResize()
+            }, 2000);
+        })
+
+        // 处理浏览器resize事件
+        window.addEventListener('resize', function () {
+            onResize()
+        })
+
+        // resize回调
+        function onResize() {
+            arToolkitSource.onResizeElement()
+            arToolkitSource.copyElementSizeTo(renderer.domElement)
+            if (arToolkitContext.arController !== null) {
+                arToolkitSource.copyElementSizeTo(arToolkitContext.arController.canvas)
+            }
+        }
+        //--------------------------------------------------------------------------------
+        //      ar.js初始化context
+        //--------------------------------------------------------------------------------
+
+
+        // 创建context
+        var arToolkitContext = new THREEx.ArToolkitContext({
+            // 设置相机内参
+            cameraParametersUrl: THREEx.ArToolkitContext.baseURL + '/assets/camera_para.dat',
+            // 设置检测模式为mono，单目（通常指单摄像头）
+            detectionMode: 'mono',
+        })
+        // 初始化
+        arToolkitContext.init(function onCompleted() {
+            // 将ar context计算的projectionMatrix复制给three.js创建的camera
+            // 相当于调整three.js camera的内参
+            camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
+        })
+
+        // 将以下函数放入渲染队列
+        // 该函数的作用应该是将ar context捕获的真实相机数据渲染到web
+        onRenderFcts.push(function () {
+            if (arToolkitSource.ready === false) return
+
+            arToolkitContext.update(arToolkitSource.domElement)
+
+            // update scene.visible if the marker is seen
+            scene.visible = camera.visible
+        })
+
+        //--------------------------------------------------------------------------------
+        //      使用ar.js创建three.js camera的控制器
+        //--------------------------------------------------------------------------------
+
+        // 初始化ar.js控制器
+        // 将该控制器绑定到three.js camera
+        // 这一步相当于调整相机的外参
+        var markerControls = new THREEx.ArMarkerControls(arToolkitContext, camera, {
+            // 类型为pattern 标记
+            type: 'pattern',
+            // 标记数据，用于计算相机外参
+            patternUrl: THREEx.ArToolkitContext.baseURL + '/assets/patt.hiro',
+            
+            changeMatrixMode: 'cameraTransformMatrix'
+        })
+        // as we do changeMatrixMode: 'cameraTransformMatrix', start with invisible scene
+        scene.visible = false
+
+        //--------------------------------------------------------------------------------
+        //		在three.js中的场景上添加一个方块
+        //--------------------------------------------------------------------------------
+
+        // 添加一个方块
+        var geometry = new THREE.CubeGeometry(1, 1, 1);
+        var material = new THREE.MeshNormalMaterial({
+            transparent: true,
+            opacity: 0.5,
+            side: THREE.DoubleSide
+        });
+        var mesh = new THREE.Mesh(geometry, material);
+        mesh.position.y = geometry.parameters.height / 2
+        scene.add(mesh);
+
+        //--------------------------------------------------------------------------------
+        //		渲染
+        //--------------------------------------------------------------------------------
+
+        // three.js场景渲染
+        onRenderFcts.push(function () {
+            renderer.render(scene, camera);
+        })
+
+        // 递归调用
+        var lastTimeMsec = null
+        requestAnimationFrame(function animate(nowMsec) {
+            requestAnimationFrame(animate);
+            // 时间
+            lastTimeMsec = lastTimeMsec || nowMsec - 1000 / 60
+            var deltaMsec = Math.min(200, nowMsec - lastTimeMsec)
+            lastTimeMsec = nowMsec
+            // 调用渲染函数
+            onRenderFcts.forEach(function (onRenderFct) {
+                onRenderFct(deltaMsec / 1000, nowMsec / 1000)
+            })
+        })
+    </script>
+</body>
+
